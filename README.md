@@ -13,6 +13,57 @@ This repository is designed to be usable in two ways:
 python3 -m pip install -r requirements.txt
 ```
 
+## Optional: Run from Any Directory
+
+Add the raygenerator folder to your `PATH` once, so you can call
+`projectionImageGen.py` from anywhere without full paths.
+
+Append this to `~/.bashrc`:
+
+```bash
+# DMDprojector launcher
+# Update this if you cloned the standalone repo elsewhere.
+DMDPROJECTOR_RAYGEN_DIR="$HOME/programs/MIRAGE/programs/raygenerators"
+if [ -d "$DMDPROJECTOR_RAYGEN_DIR" ]; then
+  export PATH="$PATH:$DMDPROJECTOR_RAYGEN_DIR"
+fi
+```
+
+Apply immediately:
+
+```bash
+source ~/.bashrc
+```
+
+If needed, make the script executable:
+
+```bash
+chmod +x "$DMDPROJECTOR_RAYGEN_DIR/projectionImageGen.py"
+```
+
+## Physical Model
+
+This code models light emission from a DMD projector, discretized into rays for
+geometric-optics simulation workflows.
+
+- The projection plane represents the DMD image plane where mask and pixel
+  activation are defined.
+- Active DMD pixels emit ray bundles with configurable per-pixel intensity:
+  `flat` or `gaussian`.
+- Emission direction can be:
+  - `collimated` (parallel rays), or
+  - `focused` (cone-sampled directions back-projected to the source plane).
+- Mask-to-pixel discretization supports:
+  - `center` activation, or
+  - `antialiased` activation using in-mask area fraction sampling.
+- Additional practical projector effects include optional in-plane projector
+  jitter (`projector_shift_max_pixels`) and optional batch-energy
+  renormalization.
+
+In short: this repository generates ray-discretized DMD light fields with
+configurable projector optics and pixel/mask physics for downstream ray tracing
+engines.
+
 ## projectionImageGen.py
 
 Unified configurable projection ray generator.
@@ -46,6 +97,15 @@ When used inside MIRAGE as a submodule, run from MIRAGE root with:
 ```bash
 python3 programs/raygenerators/projectionImageGen.py --config programs/raygenerators/examples/raygen/triangle_continuous.toml
 ```
+
+After the optional PATH setup above, equivalent usage from any directory is:
+
+```bash
+projectionImageGen.py --config triangle_continuous.toml
+```
+
+Use a relative or absolute config path when the TOML is not in your current
+directory.
 
 ### Supported features
 
