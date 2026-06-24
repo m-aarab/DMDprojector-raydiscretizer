@@ -2,13 +2,12 @@
 
 <img src="doc/img/raygenerators/annulus_gaussian_antialiased_focused_projection_focus.png" alt="Focused annulus projection and focus maps generated from a DMD light model" width="900" />
 
-## Physical Model
-
 This project models light emission from a DMD (Digital Micromirror Device)
 projector, discretized into rays for geometric-optics simulation workflows.
 
-- The projection plane represents the DMD image plane where mask and pixel
-  activation are defined.
+- The projection plane is a user-defined digitized (discretized) plane,
+  positioned between the final lens and the focus plane; it represents the DMD
+  image plane where mask and pixel activation are defined.
 - Active DMD pixels emit ray bundles with configurable per-pixel intensity:
   `flat` or `gaussian`.
 - Emission direction can be:
