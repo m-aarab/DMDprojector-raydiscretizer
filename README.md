@@ -1,6 +1,34 @@
 # DMDprojector-raydiscretizer
 
-TOML-driven projector ray discretization utility for generating proprietary `.ry` files.
+<img src="doc/img/raygenerators/annulus_gaussian_antialiased_focused_projection_focus.png" alt="Focused annulus projection and focus maps generated from a DMD light model" width="900" />
+
+## Physical Model
+
+This project models light emission from a DMD (Digital Micromirror Device)
+projector, discretized into rays for geometric-optics simulation workflows.
+
+- The projection plane represents the DMD image plane where mask and pixel
+  activation are defined.
+- Active DMD pixels emit ray bundles with configurable per-pixel intensity:
+  `flat` or `gaussian`.
+- Emission direction can be:
+  - `collimated` (parallel rays), or
+  - `focused` (cone-sampled directions back-projected to the source plane).
+- Mask-to-pixel discretization supports:
+  - `center` activation, or
+  - `antialiased` activation using in-mask area fraction sampling.
+- Additional practical projector effects include optional in-plane projector
+  jitter (`projector_shift_max_pixels`) and optional batch-energy
+  renormalization.
+
+In short: this repository generates ray-discretized DMD light fields with
+configurable projector optics and pixel/mask physics for downstream ray tracing
+engines.
+
+## Technical Implementation
+
+TOML-driven projector ray discretization utility for generating proprietary
+`.ry` files.
 
 This repository is designed to be usable in two ways:
 
@@ -40,29 +68,6 @@ If needed, make the script executable:
 ```bash
 chmod +x "$DMDPROJECTOR_RAYGEN_DIR/projectionImageGen.py"
 ```
-
-## Physical Model
-
-This code models light emission from a DMD projector, discretized into rays for
-geometric-optics simulation workflows.
-
-- The projection plane represents the DMD image plane where mask and pixel
-  activation are defined.
-- Active DMD pixels emit ray bundles with configurable per-pixel intensity:
-  `flat` or `gaussian`.
-- Emission direction can be:
-  - `collimated` (parallel rays), or
-  - `focused` (cone-sampled directions back-projected to the source plane).
-- Mask-to-pixel discretization supports:
-  - `center` activation, or
-  - `antialiased` activation using in-mask area fraction sampling.
-- Additional practical projector effects include optional in-plane projector
-  jitter (`projector_shift_max_pixels`) and optional batch-energy
-  renormalization.
-
-In short: this repository generates ray-discretized DMD light fields with
-configurable projector optics and pixel/mask physics for downstream ray tracing
-engines.
 
 ## projectionImageGen.py
 
