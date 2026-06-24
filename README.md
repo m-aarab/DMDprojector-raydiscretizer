@@ -26,7 +26,7 @@ engines.
 
 ## Technical Implementation
 
-TOML-driven projector ray discretization utility for generating proprietary
+TOML-driven projector ray discretization utility for generating custom text
 `.ry` files.
 
 This repository is designed to be usable in two ways:
@@ -50,11 +50,14 @@ Append this to `~/.bashrc`:
 ```bash
 # DMDprojector launcher
 # Update this if you cloned the standalone repo elsewhere.
-DMDPROJECTOR_RAYGEN_DIR="$HOME/programs/MIRAGE/programs/raygenerators"
+DMDPROJECTOR_RAYGEN_DIR="$HOME/path/to/DMDprojector-raydiscretizer"
 if [ -d "$DMDPROJECTOR_RAYGEN_DIR" ]; then
   export PATH="$PATH:$DMDPROJECTOR_RAYGEN_DIR"
 fi
 ```
+
+Note: The MIRAGE path (`$HOME/programs/MIRAGE/programs/raygenerators`) is only
+relevant when using this project as a submodule.
 
 Apply immediately:
 
@@ -134,9 +137,12 @@ directory.
 - Optional random in-plane projector jitter for pixelated emission while keeping the
   mask fixed (`pixels.projector_shift_max_pixels`, measured in pixel pitch units).
 
-## Proprietary ray format (`.ry`)
+## Custom text format (`.ry`)
 
-This tool writes proprietary `ray file v1` text files designed for easy modular use:
+This tool writes custom `ray file v1` text files designed for easy modular use:
+
+Trivial to parse: skip comment lines, read the ray count, then parse one row
+per ray.
 
 - ray tracing engines can consume only origin/direction/payload rows,
 - ray-discretized light models can keep generator and solver decoupled,
@@ -163,7 +169,7 @@ Details:
 
 ## Outputs
 
-- Proprietary `.ry` ray files.
+- Custom text-format `.ry` ray files.
 - Intensity-map PNG(s) saved next to each `.ry` with matching stem:
   - `<stem>_projection.png` when `focus.mode = "collimated"`
   - `<stem>_projection_focus.png` when `focus.mode = "focused"` (single figure with both maps)
@@ -256,5 +262,5 @@ These curated pixelated examples intentionally use large pixels (`pitch = [50, 5
 
 ## Notes
 
-- Image-mask import is intentionally not implemented yet.
+- Planned: bitmap/image mask import to support arbitrary DMD patterns.
 - Relative paths in TOML are resolved from the TOML file location.
