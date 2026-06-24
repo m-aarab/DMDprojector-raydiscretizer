@@ -2,10 +2,16 @@
 
 These configs target the unified TOML ray generator:
 
-Run from repository root:
+Run from this repository root:
 
 ```bash
-python3 programs/raygenerators/projectionImageGen.py --config examples/raygen/triangle_continuous.toml
+python3 projectionImageGen.py --config examples/raygen/triangle_continuous.toml
+```
+
+If used from MIRAGE root (submodule checkout):
+
+```bash
+python3 programs/raygenerators/projectionImageGen.py --config programs/raygenerators/examples/raygen/triangle_continuous.toml
 ```
 
 Output files are written to:
