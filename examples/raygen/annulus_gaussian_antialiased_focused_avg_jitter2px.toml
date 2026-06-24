@@ -1,0 +1,42 @@
+[projection]
+width = 900.0
+height = 900.0
+axis = "y"
+direction = 1
+focus_plane_position = 50.0
+source_plane_position = -200.0
+center = [0.0, 300.0]
+
+[emission]
+origin_type = "pixelated"
+base_intensity = 2.0
+
+[focus]
+mode = "focused"
+cone_half_angle_deg = 8.0
+
+[mask]
+type = "annulus"
+outer_radius = 240.0
+inner_radius = 120.0
+offset = [0.0, 0.0]
+
+[pixels]
+rays_per_pixel = 2500
+pitch = [50.0, 50.0]
+size = [55.0, 55.0]
+# Random in-plane projector shift per batch in pixel-length units.
+projector_shift_max_pixels = [5, 5]
+bins_per_pixel = [5, 5]
+activation_mode = "antialiased"
+aa_samples = 32
+intensity_mode = "gaussian"
+gaussian_size_type = "1/e2_diameter"
+
+[output]
+output_folder = "./output"
+output_filename = "annulus_gaussian_antialiased_focused_avg_jitter2px.ry"
+# 50 samples for averaging the focus map.
+batch_count = 20
+overwrite = true
+seed = 42

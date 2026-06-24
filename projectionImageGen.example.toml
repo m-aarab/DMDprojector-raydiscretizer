@@ -1,0 +1,101 @@
+# Run:
+#   python projectionImageGen.py --config projectionImageGen.example.toml
+
+[projection]
+# Focus-plane extents (mask/pixels live in this plane)
+width = 500.0
+height = 500.0
+
+# Projection axis and sign
+axis = "y"
+direction = 1
+
+# Positions along projection axis
+focus_plane_position = 50.0
+source_plane_position = 20.0
+
+# In-plane center offset [u, v]
+center = [0.0, 300.0]
+
+[emission]
+# "continuous" or "pixelated"
+origin_type = "pixelated"
+base_intensity = 2.0
+
+[focus]
+# "collimated" or "focused"
+mode = "focused"
+cone_half_angle_deg = 8.0
+
+[mask]
+# Supported: rectangle, circle, triangle, annulus
+# annulus == circle with hole in center
+
+# type = "rectangle"
+# width = 400.0
+# height = 200.0
+
+type = "triangle"
+base = 500.0
+height = 500.0
+
+# type = "circle"
+# radius = 250.0
+
+# type = "annulus"
+# outer_radius = 250.0
+# inner_radius = 100.0
+
+offset = [0.0, 0.0]
+
+# Used when emission.origin_type = "continuous"
+[continuous]
+n_rays = 300000
+
+# Used when emission.origin_type = "pixelated"
+[pixels]
+rays_per_pixel = 25
+pitch = [10.0, 10.0]
+size = [10.0, 10.0]
+
+# Random in-plane projector shift per batch while mask remains fixed.
+# Units are pixel lengths (pitch multiples), sampled uniformly in [-max, +max].
+# Example: [0.5, 0.5] allows up to half-pixel jitter along u and v.
+projector_shift_max_pixels = [0.0, 0.0]
+
+# center: pixel center in/out
+# antialiased: activation intensity is area fraction in mask
+activation_mode = "antialiased"
+aa_samples = 16
+
+# flat: all rays in pixel use same intensity
+# gaussian: peak is active pixel intensity
+intensity_mode = "flat"
+# intensity_mode = "gaussian"
+gaussian_size_type = "1/e2_diameter"
+
+[output]
+output_folder = "./output"
+output_filename = "projection_rays.ry"
+
+# Number of projection files to generate
+batch_count = 3
+start_index = 0
+append_index = true
+zero_pad = 2
+
+# Optional deterministic batch behavior
+seed = 42
+
+# If false, generation fails when target file exists
+overwrite = true
+
+# Optional: renormalize emitted energies so sum(Pray) == Ibase * Atotal(mask)
+normalize_batch_energy_to_mask_power = false
+
+# Post-process outputs always include:
+#   <output_filename_stem>_projection_average.png
+#   <output_filename_stem>_projection_average.npz
+# Focused mode additionally includes:
+#   <output_filename_stem>_focus_average.png
+#   <output_filename_stem>_focus_average.npz

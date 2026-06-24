@@ -1,0 +1,38 @@
+[projection]
+width = 600.0
+height = 600.0
+axis = "y"
+direction = 1
+focus_plane_position = 50.0
+source_plane_position = -400.0
+center = [0.0, 300.0]
+
+[emission]
+origin_type = "pixelated"
+base_intensity = 2.0
+
+[focus]
+mode = "collimated"
+cone_half_angle_deg = 0.0
+
+[mask]
+type = "triangle"
+base = 500.0
+height = 500.0
+offset = [0.0, 0.0]
+
+[pixels]
+rays_per_pixel = 4000
+pitch = [50.0, 50.0]
+size = [50.0, 50.0]
+activation_mode = "center"
+aa_samples = 8
+intensity_mode = "flat"
+gaussian_size_type = "1/e2_diameter"
+
+[output]
+output_folder = "./output"
+output_filename = "triangle_pixelated_flat.ry"
+batch_count = 1
+overwrite = true
+seed = 42
