@@ -129,6 +129,8 @@ directory.
   - non-black grayscale pixels are active; black pixels are ignored.
   - active pixel intensity is scaled by grayscale value in [0, 1].
   - PNG center maps to projection center in local UV coordinates.
+  - effective PNG cell size is taken from `mask.pixel_pitch`.
+  - `mask.pixel_dimension` is ignored in PNG mode.
   - target mask resolution is derived from `projection.width / mask.pixel_pitch[0]`
     and `projection.height / mask.pixel_pitch[1]`.
   - when target pixel counts match the PNG pixel counts, no downsampling occurs.
