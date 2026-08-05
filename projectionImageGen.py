@@ -693,6 +693,62 @@ def _gaussian_sigma(reported_size: float, size_type: str) -> float:
 	return reported_size / factors[st]
 
 
+def _pixel_count_from_extent(extent: float, pitch: float, name: str) -> int:
+	if pitch <= 0.0:
+		raise ValueError(f"{name}: pixel pitch must be > 0")
+	raw_count = extent / pitch
+	count = int(round(raw_count))
+	if count <= 0:
+		raise ValueError(f"{name}: computed pixel count must be > 0")
+	if not math.isclose(raw_count, float(count), rel_tol=0.0, abs_tol=1e-6):
+		raise ValueError(
+			f"{name}: projection extent divided by pixel pitch must be an integer. "
+			f"Got {extent} / {pitch} = {raw_count:.6f}"
+		)
+	return count
+
+
+def _downsample_axis_mean(values: np.ndarray, target_count: int, axis: int) -> np.ndarray:
+	source_count = values.shape[axis]
+	if target_count == source_count:
+		return values.copy()
+	if target_count > source_count:
+		raise ValueError(
+			f"PNG upsampling is not supported in this mode: requested {target_count} from source {source_count}."
+		)
+
+	edges = np.floor(np.linspace(0.0, float(source_count), target_count + 1)).astype(np.int64)
+	edges[-1] = source_count
+	widths = np.diff(edges)
+	if np.any(widths <= 0):
+		raise ValueError("Downsampling produced an empty bin; adjust projection size or pixel pitch.")
+
+	if axis == 1:
+		prefix = np.concatenate(
+			[np.zeros((values.shape[0], 1), dtype=np.float64), np.cumsum(values, axis=1)],
+			axis=1,
+		)
+		sums = prefix[:, edges[1:]] - prefix[:, edges[:-1]]
+		return sums / widths[None, :]
+
+	prefix = np.concatenate(
+		[np.zeros((1, values.shape[1]), dtype=np.float64), np.cumsum(values, axis=0)],
+		axis=0,
+	)
+	sums = prefix[edges[1:], :] - prefix[edges[:-1], :]
+	return sums / widths[:, None]
+
+
+def _resample_png_grayscale(
+	grayscale: np.ndarray,
+	target_height: int,
+	target_width: int,
+) -> np.ndarray:
+	resampled_u = _downsample_axis_mean(grayscale, target_width, axis=1)
+	resampled_uv = _downsample_axis_mean(resampled_u, target_height, axis=0)
+	return np.ascontiguousarray(resampled_uv, dtype=np.float64)
+
+
 class _Mask:
 	def area(self) -> float:
 		raise NotImplementedError
@@ -811,7 +867,15 @@ class _TriangleMask(_Mask):
 
 
 class _PngMask(_Mask):
-	def __init__(self, image_path: Path, pixel_pitch: Vec2f, pixel_size: Vec2f, offset: Vec2f) -> None:
+	def __init__(
+		self,
+		image_path: Path,
+		pixel_pitch: Vec2f,
+		pixel_size: Vec2f,
+		offset: Vec2f,
+		projection_width: float,
+		projection_height: float,
+	) -> None:
 		self.image_path = image_path
 		self.pitch_u = pixel_pitch[0]
 		self.pitch_v = pixel_pitch[1]
@@ -830,9 +894,36 @@ class _PngMask(_Mask):
 		if float(np.max(grayscale)) > 1.0:
 			grayscale = grayscale / 255.0
 		grayscale = np.clip(grayscale, 0.0, 1.0)
+		source_height_pixels, source_width_pixels = grayscale.shape
+
+		target_width_pixels = _pixel_count_from_extent(
+			projection_width,
+			self.pitch_u,
+			"mask png width",
+		)
+		target_height_pixels = _pixel_count_from_extent(
+			projection_height,
+			self.pitch_v,
+			"mask png height",
+		)
+
+		if target_width_pixels > source_width_pixels or target_height_pixels > source_height_pixels:
+			raise ValueError(
+				"PNG upsampling is not supported in this mode. "
+				f"Requested [{target_width_pixels}, {target_height_pixels}] from source "
+				f"[{source_width_pixels}, {source_height_pixels}]"
+			)
+
+		resampled = _resample_png_grayscale(
+			grayscale,
+			target_height=target_height_pixels,
+			target_width=target_width_pixels,
+		)
+		self.source_width_pixels = source_width_pixels
+		self.source_height_pixels = source_height_pixels
 
 		# Flip vertically so +v points upward in local UV.
-		self.grayscale_map = np.flipud(grayscale)
+		self.grayscale_map = np.flipud(resampled)
 		self.active_map = self.grayscale_map > 0.0
 		self.height_pixels, self.width_pixels = self.active_map.shape
 		self.active_indices = np.argwhere(self.active_map)
@@ -925,7 +1016,14 @@ def _build_mask(cfg: RayGeneratorConfig) -> _Mask:
 		if m.png_pixel_pitch is None:
 			raise ValueError("mask.pixel_pitch is required for mask.type=png")
 		pixel_size = m.png_pixel_size if m.png_pixel_size is not None else m.png_pixel_pitch
-		return _PngMask(m.png_path, m.png_pixel_pitch, pixel_size, m.offset)
+		return _PngMask(
+			m.png_path,
+			m.png_pixel_pitch,
+			pixel_size,
+			m.offset,
+			projection_width=cfg.projection.width,
+			projection_height=cfg.projection.height,
+		)
 	raise ValueError(f"Unsupported mask type: {m.type}")
 
 
