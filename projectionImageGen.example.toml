@@ -111,6 +111,10 @@ normalize_batch_energy_to_mask_power = false
 # Optional: write only .ry files (skip all PNG/NPZ debug outputs)
 rays_only = false
 
+# Optional: save extra average PNG/NPZ maps across batches
+# (default false to keep one image per .ry)
+save_average_maps = false
+
 # Post-process outputs always include:
 #   <output_filename_stem>_projection_average.png
 #   <output_filename_stem>_projection_average.npz

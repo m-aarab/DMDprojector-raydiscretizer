@@ -192,7 +192,7 @@ Details:
   - `<stem>_projection_focus.png` when `focus.mode = "focused"` (single figure with both maps)
   - focused/projection panels in the combined figure use shared u/v axis limits
   - focused/projection panels in the combined figure use a shared colorbar scale
-- Average projection map across all generated batches:
+- Optional average maps across generated batches (only when `output.save_average_maps = true`):
   - when `focus.mode = "collimated"`: `<output_stem>_projection_average.png/.npz`
   - when `focus.mode = "focused"`: `<output_stem>_projection_average.png/.npz` and `<output_stem>_focus_average.png/.npz`
   - average PNGs are two-panel figures: `centered sample (no shift)` (left) and `batch average` (right)
