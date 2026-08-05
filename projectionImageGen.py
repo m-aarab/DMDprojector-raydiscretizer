@@ -107,6 +107,7 @@ class OutputConfig:
 	seed: int | None
 	overwrite: bool
 	normalize_batch_energy_to_mask_power: bool
+	rays_only: bool
 
 
 @dataclass(frozen=True)
@@ -442,6 +443,12 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 		else False,
 		"output.normalize_batch_energy_to_mask_power",
 	)
+	rays_only = _parse_bool(
+		_get_first(output_raw, ("rays_only", "ry_only", "output_rays_only"))
+		if _get_first(output_raw, ("rays_only", "ry_only", "output_rays_only")) is not None
+		else False,
+		"output.rays_only",
+	)
 
 	output = OutputConfig(
 		output_folder=_resolve_output_folder(config_path, output_folder_raw),
@@ -453,6 +460,7 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 		seed=seed,
 		overwrite=overwrite,
 		normalize_batch_energy_to_mask_power=normalize_batch_energy_to_mask_power,
+		rays_only=rays_only,
 	)
 
 	if output.batch_count > 1 and not output.append_index:
@@ -1604,6 +1612,8 @@ def run(config_path: Path) -> None:
 	print(f"Mask area: {mask.area():.6e}")
 	print(f"Base intensity: {cfg.emission.base_intensity:.6e}")
 	print(f"Batch count: {cfg.output.batch_count}")
+	if cfg.output.rays_only:
+		print("Output mode: rays_only (skip PNG/NPZ debug outputs)")
 	if cfg.emission.origin_type == "pixelated" and cfg.pixel is not None:
 		print(
 			"Projector random shift max [pixels]: "
@@ -1648,6 +1658,18 @@ def run(config_path: Path) -> None:
 			)
 
 		_write_ry(out_path, origins, directions, energies, config_path)
+
+		if cfg.output.rays_only:
+			if cfg.emission.origin_type == "pixelated":
+				print(
+					f"batch {batch_idx}: projector shift [u, v] = "
+					f"({projector_shift_uv[0]:.6f}, {projector_shift_uv[1]:.6f})"
+				)
+			print(
+				f"Wrote {out_path} | nrays={origins.shape[0]} | "
+				f"energy sum={energies.sum():.6e}"
+			)
+			continue
 
 		projection_uv = _world_to_local_uv(cfg.projection, origins)
 		bin_u, bin_v = _map_bin_size(cfg, mask, origins.shape[0])
@@ -1811,7 +1833,7 @@ def run(config_path: Path) -> None:
 			f"energy sum={energies.sum():.6e}"
 		)
 
-	if avg_projection_intensity is not None and avg_count > 0:
+	if (not cfg.output.rays_only) and avg_projection_intensity is not None and avg_count > 0:
 		if avg_projection_edges_u is None or avg_projection_edges_v is None or single_projection_intensity is None:
 			raise RuntimeError("Projection average post-processing failed due to missing map state")
 		if avg_plane_intensity_world is None or avg_edges_u_world is None or avg_edges_v_world is None:
@@ -1949,11 +1971,13 @@ def validate_config(config_path: Path) -> RayGeneratorConfig:
 		if not isinstance(mask, _PngMask):
 			_build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
 			_build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
-		_map_bin_size(cfg, mask, 1)
+		if not cfg.output.rays_only:
+			_map_bin_size(cfg, mask, 1)
 	else:
 		if cfg.continuous is None:
 			raise ValueError("[continuous] table is required for emission.origin_type=continuous")
-		_map_bin_size(cfg, mask, cfg.continuous.n_rays)
+		if not cfg.output.rays_only:
+			_map_bin_size(cfg, mask, cfg.continuous.n_rays)
 
 	return cfg
 
