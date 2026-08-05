@@ -603,6 +603,23 @@ def _mask_contains_world_plane(mask: _Mask, projection: ProjectionConfig, world_
 	return mask.contains(local_u, local_v)
 
 
+def _mask_intensity_scale_local(mask: _Mask, local_u: float, local_v: float) -> float:
+	if isinstance(mask, _PngMask):
+		return mask.intensity_scale(local_u, local_v)
+	return 1.0 if mask.contains(local_u, local_v) else 0.0
+
+
+def _mask_intensity_scale_world_plane(
+	mask: _Mask,
+	projection: ProjectionConfig,
+	world_u: float,
+	world_v: float,
+) -> float:
+	local_u = world_u - projection.center[0]
+	local_v = world_v - projection.center[1]
+	return _mask_intensity_scale_local(mask, local_u, local_v)
+
+
 def _sample_cone_directions(
 	rng: np.random.Generator,
 	axis_direction: np.ndarray,
@@ -810,13 +827,18 @@ class _PngMask(_Mask):
 			grayscale = np.asarray(img[:, :, :3], dtype=np.float64).mean(axis=2)
 		else:
 			raise ValueError(f"Unsupported PNG image shape for mask: {img.shape}")
+		if float(np.max(grayscale)) > 1.0:
+			grayscale = grayscale / 255.0
+		grayscale = np.clip(grayscale, 0.0, 1.0)
 
 		# Flip vertically so +v points upward in local UV.
-		self.active_map = np.flipud(grayscale > 0.0)
+		self.grayscale_map = np.flipud(grayscale)
+		self.active_map = self.grayscale_map > 0.0
 		self.height_pixels, self.width_pixels = self.active_map.shape
 		self.active_indices = np.argwhere(self.active_map)
 		if self.active_indices.shape[0] == 0:
 			raise ValueError("mask PNG has no active (non-black) pixels")
+		self.active_grayscale = self.grayscale_map[self.active_map]
 
 		self.half_u_count = 0.5 * (self.width_pixels - 1)
 		self.half_v_count = 0.5 * (self.height_pixels - 1)
@@ -824,7 +846,7 @@ class _PngMask(_Mask):
 		self.v_centers = (np.arange(self.height_pixels, dtype=np.float64) - self.half_v_count) * self.pitch_v + self.offset_v
 
 	def area(self) -> float:
-		return float(self.active_indices.shape[0]) * self.size_u * self.size_v
+		return float(np.sum(self.active_grayscale)) * self.size_u * self.size_v
 
 	def _point_to_pixel(self, u: float, v: float) -> tuple[int, int] | None:
 		u_rel = u - self.offset_u
@@ -849,6 +871,22 @@ class _PngMask(_Mask):
 		center_u = self.u_centers[i]
 		center_v = self.v_centers[j]
 		return abs(u - center_u) <= self.size_u / 2.0 and abs(v - center_v) <= self.size_v / 2.0
+
+	def intensity_scale(self, u: float, v: float) -> float:
+		pix = self._point_to_pixel(u, v)
+		if pix is None:
+			return 0.0
+
+		i, j = pix
+		g = float(self.grayscale_map[j, i])
+		if g <= 0.0:
+			return 0.0
+
+		center_u = self.u_centers[i]
+		center_v = self.v_centers[j]
+		if abs(u - center_u) > self.size_u / 2.0 or abs(v - center_v) > self.size_v / 2.0:
+			return 0.0
+		return g
 
 	def sample(self, rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
 		choice = rng.integers(0, self.active_indices.shape[0], size=n)
@@ -925,7 +963,7 @@ def _aa_activation_fraction_world(
 	flat_u = uu.ravel()
 	flat_v = vv.ravel()
 	inside = np.fromiter(
-		(_mask_contains_world_plane(mask, projection, float(u), float(v)) for u, v in zip(flat_u, flat_v)),
+		(_mask_intensity_scale_world_plane(mask, projection, float(u), float(v)) for u, v in zip(flat_u, flat_v)),
 		dtype=np.float64,
 	)
 	return float(np.mean(inside))
@@ -983,8 +1021,9 @@ def _generate_pixelated_rays(
 		for cv, cv_world in zip(centers_v, centers_v_world):
 			# Pixel centers are jittered in local UV; mask inclusion is evaluated in
 			# world-plane coordinates so the mask remains fixed in real space.
+			# For PNG masks, the activation value includes grayscale intensity.
 			if px.activation_mode == "center":
-				fraction = 1.0 if _mask_contains_world_plane(mask, cfg.projection, float(cu_world), float(cv_world)) else 0.0
+				fraction = _mask_intensity_scale_world_plane(mask, cfg.projection, float(cu_world), float(cv_world))
 			else:
 				fraction = _aa_activation_fraction_world(
 					mask,
