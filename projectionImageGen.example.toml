@@ -28,7 +28,7 @@ mode = "focused"
 cone_half_angle_deg = 8.0
 
 [mask]
-# Supported: rectangle, circle, triangle, annulus
+# Supported: rectangle, circle, triangle, annulus, png
 # annulus == circle with hole in center
 
 # type = "rectangle"
@@ -46,6 +46,12 @@ height = 500.0
 # outer_radius = 250.0
 # inner_radius = 100.0
 
+# type = "png"
+# png_path = "./examples/png2ry/frames/frame_0001.png"
+# pixel_pitch = [1.0, 1.0]
+# pixel_dimension = [1.0, 1.0]
+# For png masks, pixel count is read from the PNG dimensions.
+
 offset = [0.0, 0.0]
 
 # Used when emission.origin_type = "continuous"
@@ -55,6 +61,8 @@ n_rays = 300000
 # Used when emission.origin_type = "pixelated"
 [pixels]
 rays_per_pixel = 25
+# For mask.type = "png", pixels.pitch/size can be omitted and default to
+# mask.pixel_pitch/pixel_dimension.
 pitch = [10.0, 10.0]
 size = [10.0, 10.0]
 

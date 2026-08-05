@@ -118,13 +118,17 @@ directory.
 
 - Projection setup: width, height, axis, direction sign (+/-), focus/source plane positions.
 - Base intensity in W/m^2.
-- Masks: rectangle, circle, triangle, annulus (circle with central hole).
+- Masks: rectangle, circle, triangle, annulus (circle with central hole), png.
 - Origin types:
   - `continuous`: sample directly in mask until `n_rays` is reached.
   - `pixelated`: mask -> pixel activation -> ray emission.
 - Pixel activation:
   - `center`: on/off by pixel center.
   - `antialiased`: intensity scaling by in-mask area fraction.
+- PNG mask behavior:
+  - non-black grayscale pixels are active; black pixels are ignored.
+  - PNG center maps to projection center in local UV coordinates.
+  - pixel count is read directly from the PNG dimensions.
 - Pixel intensity modes:
   - `flat`
   - `gaussian` (peak equals activated pixel intensity)
@@ -262,5 +266,5 @@ These curated pixelated examples intentionally use large pixels (`pitch = [50, 5
 
 ## Notes
 
-- Planned: bitmap/image mask import to support arbitrary DMD patterns.
 - Relative paths in TOML are resolved from the TOML file location.
+- PNG mask example config: `examples/png2ry/png_mask_frame_0001_flat_1rpp.toml`.
