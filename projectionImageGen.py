@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -60,6 +61,9 @@ class MaskConfig:
 	triangle_height: float | None
 	annulus_outer_radius: float | None
 	annulus_inner_radius: float | None
+	png_path: Path | None
+	png_pixel_pitch: Vec2f | None
+	png_pixel_size: Vec2f | None
 
 
 @dataclass(frozen=True)
@@ -263,6 +267,13 @@ def _resolve_output_folder(config_path: Path, raw_path: str) -> Path:
 	return out_dir
 
 
+def _resolve_input_path(config_path: Path, raw_path: str) -> Path:
+	path = Path(raw_path)
+	if not path.is_absolute():
+		path = (config_path.parent / path).resolve()
+	return path
+
+
 def _load_toml(path: Path) -> dict[str, Any]:
 	try:
 		config_text = path.read_text(encoding="utf-8")
@@ -341,8 +352,33 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 	mask_type = _parse_mode(
 		_get_first(mask_raw, ("type", "shape")),
 		"mask.type",
-		allowed={"rectangle", "circle", "triangle", "annulus"},
-		aliases={"circle_with_hole": "annulus", "ring": "annulus", "rect": "rectangle"},
+		allowed={"rectangle", "circle", "triangle", "annulus", "png"},
+		aliases={
+			"circle_with_hole": "annulus",
+			"ring": "annulus",
+			"rect": "rectangle",
+			"image": "png",
+			"bitmap": "png",
+		},
+	)
+	png_path_raw = _get_first(mask_raw, ("png_path", "image_path", "path", "file"))
+	png_path: Path | None = None
+	if png_path_raw is not None:
+		if not isinstance(png_path_raw, str) or not png_path_raw.strip():
+			raise ValueError("mask.png_path must be a non-empty string when provided.")
+		png_path = _resolve_input_path(config_path, png_path_raw.strip())
+
+	png_pixel_pitch_raw = _get_first(mask_raw, ("pixel_pitch", "png_pixel_pitch", "pitch"))
+	png_pixel_size_raw = _get_first(mask_raw, ("pixel_dimension", "pixel_size", "size", "dimension"))
+	png_pixel_pitch = (
+		_parse_vec2(png_pixel_pitch_raw, "mask.pixel_pitch", positive_only=True)
+		if png_pixel_pitch_raw is not None
+		else None
+	)
+	png_pixel_size = (
+		_parse_vec2(png_pixel_size_raw, "mask.pixel_dimension", positive_only=True)
+		if png_pixel_size_raw is not None
+		else None
 	)
 	mask = MaskConfig(
 		type=mask_type,
@@ -372,6 +408,9 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			if "inner_radius" in mask_raw
 			else None
 		),
+		png_path=png_path,
+		png_pixel_pitch=png_pixel_pitch,
+		png_pixel_size=png_pixel_size,
 	)
 
 	output_filename_raw = _get_first(output_raw, ("output_filename", "filename", "file", "output"))
@@ -430,8 +469,19 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 
 	if emission.origin_type == "pixelated":
 		pixel_raw = _require_table(raw, "pixels")
-		pitch = _parse_vec2(_get_first(pixel_raw, ("pitch", "pixel_pitch")), "pixels.pitch", positive_only=True)
-		size = _parse_vec2(_get_first(pixel_raw, ("size", "pixel_size")) or list(pitch), "pixels.size", positive_only=True)
+		pitch_raw = _get_first(pixel_raw, ("pitch", "pixel_pitch"))
+		if pitch_raw is None and mask.type == "png":
+			if mask.png_pixel_pitch is None:
+				raise ValueError("mask.pixel_pitch is required for mask.type=png")
+			pitch = mask.png_pixel_pitch
+		else:
+			pitch = _parse_vec2(pitch_raw, "pixels.pitch", positive_only=True)
+
+		size_raw = _get_first(pixel_raw, ("size", "pixel_size"))
+		if size_raw is None and mask.type == "png" and mask.png_pixel_size is not None:
+			size = mask.png_pixel_size
+		else:
+			size = _parse_vec2(size_raw or list(pitch), "pixels.size", positive_only=True)
 		projector_shift_max_pixels = _parse_vec2_nonnegative_float_or_scalar(
 			_get_first(pixel_raw, ("projector_shift_max_pixels", "projection_shift_max_pixels", "plane_shift_max_pixels"))
 			if _get_first(pixel_raw, ("projector_shift_max_pixels", "projection_shift_max_pixels", "plane_shift_max_pixels")) is not None
@@ -743,6 +793,76 @@ class _TriangleMask(_Mask):
 		return su + self.offset_u, sv + self.offset_v
 
 
+class _PngMask(_Mask):
+	def __init__(self, image_path: Path, pixel_pitch: Vec2f, pixel_size: Vec2f, offset: Vec2f) -> None:
+		self.image_path = image_path
+		self.pitch_u = pixel_pitch[0]
+		self.pitch_v = pixel_pitch[1]
+		self.size_u = pixel_size[0]
+		self.size_v = pixel_size[1]
+		self.offset_u = offset[0]
+		self.offset_v = offset[1]
+
+		img = mpimg.imread(str(image_path))
+		if img.ndim == 2:
+			grayscale = np.asarray(img, dtype=np.float64)
+		elif img.ndim == 3 and img.shape[2] >= 3:
+			grayscale = np.asarray(img[:, :, :3], dtype=np.float64).mean(axis=2)
+		else:
+			raise ValueError(f"Unsupported PNG image shape for mask: {img.shape}")
+
+		# Flip vertically so +v points upward in local UV.
+		self.active_map = np.flipud(grayscale > 0.0)
+		self.height_pixels, self.width_pixels = self.active_map.shape
+		self.active_indices = np.argwhere(self.active_map)
+		if self.active_indices.shape[0] == 0:
+			raise ValueError("mask PNG has no active (non-black) pixels")
+
+		self.half_u_count = 0.5 * (self.width_pixels - 1)
+		self.half_v_count = 0.5 * (self.height_pixels - 1)
+		self.u_centers = (np.arange(self.width_pixels, dtype=np.float64) - self.half_u_count) * self.pitch_u + self.offset_u
+		self.v_centers = (np.arange(self.height_pixels, dtype=np.float64) - self.half_v_count) * self.pitch_v + self.offset_v
+
+	def area(self) -> float:
+		return float(self.active_indices.shape[0]) * self.size_u * self.size_v
+
+	def _point_to_pixel(self, u: float, v: float) -> tuple[int, int] | None:
+		u_rel = u - self.offset_u
+		v_rel = v - self.offset_v
+		i_float = u_rel / self.pitch_u + self.half_u_count
+		j_float = v_rel / self.pitch_v + self.half_v_count
+		i = int(round(i_float))
+		j = int(round(j_float))
+		if i < 0 or i >= self.width_pixels or j < 0 or j >= self.height_pixels:
+			return None
+		return i, j
+
+	def contains(self, u: float, v: float) -> bool:
+		pix = self._point_to_pixel(u, v)
+		if pix is None:
+			return False
+
+		i, j = pix
+		if not bool(self.active_map[j, i]):
+			return False
+
+		center_u = self.u_centers[i]
+		center_v = self.v_centers[j]
+		return abs(u - center_u) <= self.size_u / 2.0 and abs(v - center_v) <= self.size_v / 2.0
+
+	def sample(self, rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
+		choice = rng.integers(0, self.active_indices.shape[0], size=n)
+		picked = self.active_indices[choice]
+		j = picked[:, 0]
+		i = picked[:, 1]
+
+		center_u = self.u_centers[i]
+		center_v = self.v_centers[j]
+		delta_u = rng.uniform(-self.size_u / 2.0, self.size_u / 2.0, n)
+		delta_v = rng.uniform(-self.size_v / 2.0, self.size_v / 2.0, n)
+		return center_u + delta_u, center_v + delta_v
+
+
 def _build_mask(cfg: RayGeneratorConfig) -> _Mask:
 	m = cfg.mask
 	if m.type == "rectangle":
@@ -761,6 +881,13 @@ def _build_mask(cfg: RayGeneratorConfig) -> _Mask:
 		if m.annulus_outer_radius is None or m.annulus_inner_radius is None:
 			raise ValueError("mask.outer_radius and mask.inner_radius are required for mask.type=annulus")
 		return _AnnulusMask(m.annulus_outer_radius, m.annulus_inner_radius, m.offset)
+	if m.type == "png":
+		if m.png_path is None:
+			raise ValueError("mask.png_path is required for mask.type=png")
+		if m.png_pixel_pitch is None:
+			raise ValueError("mask.pixel_pitch is required for mask.type=png")
+		pixel_size = m.png_pixel_size if m.png_pixel_size is not None else m.png_pixel_pitch
+		return _PngMask(m.png_path, m.png_pixel_pitch, pixel_size, m.offset)
 	raise ValueError(f"Unsupported mask type: {m.type}")
 
 
@@ -842,8 +969,12 @@ def _generate_pixelated_rays(
 		raise RuntimeError("Pixel config is missing.")
 
 	px = cfg.pixel
-	centers_u = _build_pixel_centers(cfg.projection.width, px.pitch[0]) + projector_shift_uv[0]
-	centers_v = _build_pixel_centers(cfg.projection.height, px.pitch[1]) + projector_shift_uv[1]
+	if isinstance(mask, _PngMask):
+		centers_u = mask.u_centers + projector_shift_uv[0]
+		centers_v = mask.v_centers + projector_shift_uv[1]
+	else:
+		centers_u = _build_pixel_centers(cfg.projection.width, px.pitch[0]) + projector_shift_uv[0]
+		centers_v = _build_pixel_centers(cfg.projection.height, px.pitch[1]) + projector_shift_uv[1]
 	centers_u_world = centers_u + cfg.projection.center[0]
 	centers_v_world = centers_v + cfg.projection.center[1]
 
@@ -1030,12 +1161,16 @@ def _build_edges_aligned(values: np.ndarray, bin_size: float, anchor: float) -> 
 	return start + np.arange(n_bins + 1, dtype=np.float64) * bin_size
 
 
-def _pixel_bin_anchors(cfg: RayGeneratorConfig) -> tuple[float, float]:
+def _pixel_bin_anchors(cfg: RayGeneratorConfig, mask: _Mask) -> tuple[float, float]:
 	if cfg.pixel is None:
 		raise RuntimeError("Pixel config missing for pixel-aligned histogram bins.")
 
-	centers_u = _build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
-	centers_v = _build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
+	if isinstance(mask, _PngMask):
+		centers_u = mask.u_centers
+		centers_v = mask.v_centers
+	else:
+		centers_u = _build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
+		centers_v = _build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
 
 	anchor_u = float(centers_u[0] - 0.5 * cfg.pixel.pitch[0])
 	anchor_v = float(centers_v[0] - 0.5 * cfg.pixel.pitch[1])
@@ -1382,7 +1517,7 @@ def run(config_path: Path) -> None:
 		aligned_anchor_u = None
 		aligned_anchor_v = None
 		if cfg.emission.origin_type == "pixelated":
-			aligned_anchor_u, aligned_anchor_v = _pixel_bin_anchors(cfg)
+			aligned_anchor_u, aligned_anchor_v = _pixel_bin_anchors(cfg, mask)
 
 		shared_edges_u = None
 		shared_edges_v = None
@@ -1672,8 +1807,9 @@ def validate_config(config_path: Path) -> RayGeneratorConfig:
 	if cfg.emission.origin_type == "pixelated":
 		if cfg.pixel is None:
 			raise ValueError("[pixels] table is required for emission.origin_type=pixelated")
-		_build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
-		_build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
+		if not isinstance(mask, _PngMask):
+			_build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
+			_build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
 		_map_bin_size(cfg, mask, 1)
 	else:
 		if cfg.continuous is None:
