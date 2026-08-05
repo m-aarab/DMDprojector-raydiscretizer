@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -62,6 +62,8 @@ class MaskConfig:
 	annulus_outer_radius: float | None
 	annulus_inner_radius: float | None
 	png_path: Path | None
+	png_folder: Path | None
+	png_frame_step: int
 	png_pixel_pitch: Vec2f | None
 	png_pixel_size: Vec2f | None
 
@@ -275,6 +277,41 @@ def _resolve_input_path(config_path: Path, raw_path: str) -> Path:
 	return path
 
 
+def _collect_png_frames(folder: Path, frame_step: int) -> list[Path]:
+	if not folder.exists():
+		raise FileNotFoundError(f"mask.png_folder does not exist: {folder}")
+	if not folder.is_dir():
+		raise ValueError(f"mask.png_folder must be a directory: {folder}")
+
+	frames = sorted(
+		path
+		for path in folder.iterdir()
+		if path.is_file() and path.suffix.lower() == ".png"
+	)
+	if not frames:
+		raise ValueError(f"mask.png_folder contains no .png files: {folder}")
+
+	selected = frames[::frame_step]
+	if not selected:
+		raise ValueError(
+			f"mask.frame_step={frame_step} selected no frames from folder: {folder}"
+		)
+	return selected
+
+
+def _config_for_png_frame(base_cfg: RayGeneratorConfig, frame_path: Path) -> RayGeneratorConfig:
+	frame_mask = replace(base_cfg.mask, png_path=frame_path, png_folder=None)
+	frame_output = replace(
+		base_cfg.output,
+		output_filename=f"{frame_path.stem}.ry",
+		batch_count=1,
+		append_index=False,
+		start_index=0,
+		zero_pad=0,
+	)
+	return replace(base_cfg, mask=frame_mask, output=frame_output)
+
+
 def _load_toml(path: Path) -> dict[str, Any]:
 	try:
 		config_text = path.read_text(encoding="utf-8")
@@ -369,6 +406,18 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			raise ValueError("mask.png_path must be a non-empty string when provided.")
 		png_path = _resolve_input_path(config_path, png_path_raw.strip())
 
+	png_folder_raw = _get_first(mask_raw, ("png_folder", "image_folder", "folder", "frames_folder"))
+	png_folder: Path | None = None
+	if png_folder_raw is not None:
+		if not isinstance(png_folder_raw, str) or not png_folder_raw.strip():
+			raise ValueError("mask.png_folder must be a non-empty string when provided.")
+		png_folder = _resolve_input_path(config_path, png_folder_raw.strip())
+
+	png_frame_step = _parse_positive_int(
+		_get_first(mask_raw, ("frame_step", "png_frame_step", "every_nth_frame")) or 1,
+		"mask.frame_step",
+	)
+
 	png_pixel_pitch_raw = _get_first(mask_raw, ("pixel_pitch", "png_pixel_pitch", "pitch"))
 	png_pixel_size_raw = _get_first(mask_raw, ("pixel_dimension", "pixel_size", "size", "dimension"))
 	png_pixel_pitch = (
@@ -410,6 +459,8 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			else None
 		),
 		png_path=png_path,
+		png_folder=png_folder,
+		png_frame_step=png_frame_step,
 		png_pixel_pitch=png_pixel_pitch,
 		png_pixel_size=png_pixel_size,
 	)
@@ -554,6 +605,12 @@ def _validate_cross_constraints(cfg: RayGeneratorConfig) -> None:
 		raise ValueError("[pixels] table is required for emission.origin_type=pixelated")
 	if cfg.emission.origin_type == "continuous" and cfg.continuous is None:
 		raise ValueError("[continuous] table is required for emission.origin_type=continuous")
+
+	if cfg.mask.type == "png":
+		if cfg.mask.png_path is None and cfg.mask.png_folder is None:
+			raise ValueError("mask.type=png requires either mask.png_path or mask.png_folder")
+		if cfg.mask.png_folder is not None and cfg.output.batch_count != 1:
+			raise ValueError("output.batch_count must be 1 when using mask.png_folder")
 
 
 def _axis_indices(axis: str) -> tuple[int, int, int]:
@@ -1598,8 +1655,21 @@ def _save_focused_comparison_png(
 	plt.close(fig)
 
 
-def run(config_path: Path) -> None:
-	cfg = load_config(config_path)
+def run(config_path: Path, cfg: RayGeneratorConfig | None = None) -> None:
+	if cfg is None:
+		cfg = load_config(config_path)
+		if cfg.mask.type == "png" and cfg.mask.png_folder is not None:
+			frame_paths = _collect_png_frames(cfg.mask.png_folder, cfg.mask.png_frame_step)
+			print(
+				"Configured multi-frame PNG generation "
+				f"({len(frame_paths)} frames, step={cfg.mask.png_frame_step})"
+			)
+			for idx, frame_path in enumerate(frame_paths):
+				frame_cfg = _config_for_png_frame(cfg, frame_path)
+				print(f"Frame {idx + 1}/{len(frame_paths)}: {frame_path.name} -> {frame_path.stem}.ry")
+				run(config_path, frame_cfg)
+			return
+
 	mask = _build_mask(cfg)
 
 	cfg.output.output_folder.mkdir(parents=True, exist_ok=True)
@@ -1963,21 +2033,25 @@ def run(config_path: Path) -> None:
 
 def validate_config(config_path: Path) -> RayGeneratorConfig:
 	cfg = load_config(config_path)
-	mask = _build_mask(cfg)
+	cfg_for_validation = cfg
+	if cfg.mask.type == "png" and cfg.mask.png_folder is not None:
+		frame_paths = _collect_png_frames(cfg.mask.png_folder, cfg.mask.png_frame_step)
+		cfg_for_validation = _config_for_png_frame(cfg, frame_paths[0])
+	mask = _build_mask(cfg_for_validation)
 
-	if cfg.emission.origin_type == "pixelated":
-		if cfg.pixel is None:
+	if cfg_for_validation.emission.origin_type == "pixelated":
+		if cfg_for_validation.pixel is None:
 			raise ValueError("[pixels] table is required for emission.origin_type=pixelated")
 		if not isinstance(mask, _PngMask):
-			_build_pixel_centers(cfg.projection.width, cfg.pixel.pitch[0])
-			_build_pixel_centers(cfg.projection.height, cfg.pixel.pitch[1])
-		if not cfg.output.rays_only:
-			_map_bin_size(cfg, mask, 1)
+			_build_pixel_centers(cfg_for_validation.projection.width, cfg_for_validation.pixel.pitch[0])
+			_build_pixel_centers(cfg_for_validation.projection.height, cfg_for_validation.pixel.pitch[1])
+		if not cfg_for_validation.output.rays_only:
+			_map_bin_size(cfg_for_validation, mask, 1)
 	else:
-		if cfg.continuous is None:
+		if cfg_for_validation.continuous is None:
 			raise ValueError("[continuous] table is required for emission.origin_type=continuous")
-		if not cfg.output.rays_only:
-			_map_bin_size(cfg, mask, cfg.continuous.n_rays)
+		if not cfg_for_validation.output.rays_only:
+			_map_bin_size(cfg_for_validation, mask, cfg_for_validation.continuous.n_rays)
 
 	return cfg
 
