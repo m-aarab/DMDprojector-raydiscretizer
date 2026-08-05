@@ -131,6 +131,10 @@ directory.
   - PNG center maps to projection center in local UV coordinates.
   - effective PNG cell size is taken from `mask.pixel_pitch`.
   - `mask.pixel_dimension` is ignored in PNG mode.
+  - set `mask.png_folder` to process a folder of PNG frames.
+  - set `mask.frame_step = N` to process every Nth frame (for example `N = 6`).
+  - in folder mode, each output keeps the source frame basename with `.ry`
+    extension (for example `frame_0007.png -> frame_0007.ry`).
   - target mask resolution is derived from `projection.width / mask.pixel_pitch[0]`
     and `projection.height / mask.pixel_pitch[1]`.
   - when target pixel counts match the PNG pixel counts, no downsampling occurs.

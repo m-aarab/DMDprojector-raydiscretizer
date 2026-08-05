@@ -48,9 +48,12 @@ height = 500.0
 
 # type = "png"
 # png_path = "./examples/png2ry/frames/frame_0001.png"
+# png_folder = "./examples/png2ry/frames"
+# frame_step = 6
 # pixel_pitch = [1.0, 1.0]
 # pixel_dimension = [1.0, 1.0]
 # In png mode, pixel_dimension is ignored; pitch defines cell size.
+# In png_folder mode, output filenames follow frame basenames (png -> .ry).
 # PNG target pixel count is projection width/height divided by pixel_pitch.
 # If that equals the PNG resolution, no downsampling occurs.
 # If lower than PNG resolution, each target pixel uses average grayscale in its bin.
