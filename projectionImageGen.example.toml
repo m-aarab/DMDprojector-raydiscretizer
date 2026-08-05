@@ -51,6 +51,7 @@ height = 500.0
 # pixel_pitch = [1.0, 1.0]
 # pixel_dimension = [1.0, 1.0]
 # For png masks, pixel count is read from the PNG dimensions.
+# Non-black grayscale values scale emitted pixel intensity.
 
 offset = [0.0, 0.0]
 

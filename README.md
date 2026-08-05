@@ -127,6 +127,7 @@ directory.
   - `antialiased`: intensity scaling by in-mask area fraction.
 - PNG mask behavior:
   - non-black grayscale pixels are active; black pixels are ignored.
+  - active pixel intensity is scaled by grayscale value in [0, 1].
   - PNG center maps to projection center in local UV coordinates.
   - pixel count is read directly from the PNG dimensions.
 - Pixel intensity modes:
