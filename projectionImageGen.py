@@ -478,8 +478,9 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			pitch = _parse_vec2(pitch_raw, "pixels.pitch", positive_only=True)
 
 		size_raw = _get_first(pixel_raw, ("size", "pixel_size"))
-		if size_raw is None and mask.type == "png" and mask.png_pixel_size is not None:
-			size = mask.png_pixel_size
+		if mask.type == "png":
+			# PNG masks use pitch-defined cells for both geometry and energy area.
+			size = pitch
 		else:
 			size = _parse_vec2(size_raw or list(pitch), "pixels.size", positive_only=True)
 		projector_shift_max_pixels = _parse_vec2_nonnegative_float_or_scalar(
@@ -1015,7 +1016,8 @@ def _build_mask(cfg: RayGeneratorConfig) -> _Mask:
 			raise ValueError("mask.png_path is required for mask.type=png")
 		if m.png_pixel_pitch is None:
 			raise ValueError("mask.pixel_pitch is required for mask.type=png")
-		pixel_size = m.png_pixel_size if m.png_pixel_size is not None else m.png_pixel_pitch
+		# PNG masks derive effective cell size directly from pitch.
+		pixel_size = m.png_pixel_pitch
 		return _PngMask(
 			m.png_path,
 			m.png_pixel_pitch,
