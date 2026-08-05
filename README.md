@@ -147,6 +147,8 @@ directory.
   `base_intensity * mask_area` exactly (`output.normalize_batch_energy_to_mask_power`).
 - Optional random in-plane projector jitter for pixelated emission while keeping the
   mask fixed (`pixels.projector_shift_max_pixels`, measured in pixel pitch units).
+- Optional ray-only output mode (`output.rays_only = true`) to write only `.ry`
+  files and skip all PNG/NPZ debug outputs.
 
 ## Custom text format (`.ry`)
 

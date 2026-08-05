@@ -105,6 +105,9 @@ overwrite = true
 # Optional: renormalize emitted energies so sum(Pray) == Ibase * Atotal(mask)
 normalize_batch_energy_to_mask_power = false
 
+# Optional: write only .ry files (skip all PNG/NPZ debug outputs)
+rays_only = false
+
 # Post-process outputs always include:
 #   <output_filename_stem>_projection_average.png
 #   <output_filename_stem>_projection_average.npz
