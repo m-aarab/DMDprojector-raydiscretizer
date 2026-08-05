@@ -110,6 +110,7 @@ class OutputConfig:
 	overwrite: bool
 	normalize_batch_energy_to_mask_power: bool
 	rays_only: bool
+	save_average_maps: bool
 
 
 @dataclass(frozen=True)
@@ -500,6 +501,12 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 		else False,
 		"output.rays_only",
 	)
+	save_average_maps = _parse_bool(
+		_get_first(output_raw, ("save_average_maps", "generate_average_maps", "average_maps"))
+		if _get_first(output_raw, ("save_average_maps", "generate_average_maps", "average_maps")) is not None
+		else False,
+		"output.save_average_maps",
+	)
 
 	output = OutputConfig(
 		output_folder=_resolve_output_folder(config_path, output_folder_raw),
@@ -512,6 +519,7 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 		overwrite=overwrite,
 		normalize_batch_energy_to_mask_power=normalize_batch_energy_to_mask_power,
 		rays_only=rays_only,
+		save_average_maps=save_average_maps,
 	)
 
 	if output.batch_count > 1 and not output.append_index:
@@ -1903,7 +1911,12 @@ def run(config_path: Path, cfg: RayGeneratorConfig | None = None) -> None:
 			f"energy sum={energies.sum():.6e}"
 		)
 
-	if (not cfg.output.rays_only) and avg_projection_intensity is not None and avg_count > 0:
+	if (
+		not cfg.output.rays_only
+		and cfg.output.save_average_maps
+		and avg_projection_intensity is not None
+		and avg_count > 0
+	):
 		if avg_projection_edges_u is None or avg_projection_edges_v is None or single_projection_intensity is None:
 			raise RuntimeError("Projection average post-processing failed due to missing map state")
 		if avg_plane_intensity_world is None or avg_edges_u_world is None or avg_edges_v_world is None:
