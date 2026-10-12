@@ -90,6 +90,7 @@ class PixelConfig:
 	rays_per_pixel: int
 	pitch: Vec2f
 	size: Vec2f
+	sample_size: Vec2f
 	projector_shift_max_pixels: Vec2f
 	bins_per_pixel: Vec2i
 	activation_mode: str
@@ -230,6 +231,22 @@ def _parse_vec2_nonnegative_float_or_scalar(value: Any, name: str) -> Vec2f:
 		return n0, n1
 
 	raise ValueError(f"'{name}' must be a non-negative number or 2-value numeric array.")
+
+
+def _parse_vec2_positive_float_or_scalar(value: Any, name: str) -> Vec2f:
+	if isinstance(value, bool):
+		raise ValueError(f"'{name}' must be a positive number or 2-value numeric array.")
+
+	if isinstance(value, (int, float)):
+		n = _parse_positive_float(value, name)
+		return n, n
+
+	if isinstance(value, (list, tuple)) and len(value) == 2:
+		n0 = _parse_positive_float(value[0], f"{name}[0]")
+		n1 = _parse_positive_float(value[1], f"{name}[1]")
+		return n0, n1
+
+	raise ValueError(f"'{name}' must be a positive number or 2-value numeric array.")
 
 
 def _parse_axis(value: Any) -> str:
@@ -550,6 +567,18 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			size = pitch
 		else:
 			size = _parse_vec2(size_raw or list(pitch), "pixels.size", positive_only=True)
+
+		# Sampling footprint for ray origins within each pixel. Defaults to `size`
+		# so existing configs behave identically. `size` still defines the Gaussian
+		# sigma and the activation footprint; `sample_size` only sets the region
+		# from which rays are drawn (and therefore where a Gaussian is truncated).
+		sample_size_raw = _get_first(pixel_raw, ("sample_size", "sample_width", "sampling_size"))
+		sample_size = (
+			size
+			if sample_size_raw is None
+			else _parse_vec2_positive_float_or_scalar(sample_size_raw, "pixels.sample_size")
+		)
+
 		projector_shift_max_pixels = _parse_vec2_nonnegative_float_or_scalar(
 			_get_first(pixel_raw, ("projector_shift_max_pixels", "projection_shift_max_pixels", "plane_shift_max_pixels"))
 			if _get_first(pixel_raw, ("projector_shift_max_pixels", "projection_shift_max_pixels", "plane_shift_max_pixels")) is not None
@@ -577,6 +606,7 @@ def load_config(config_path: Path) -> RayGeneratorConfig:
 			rays_per_pixel=_parse_positive_int(_get_first(pixel_raw, ("rays_per_pixel", "rpp")), "pixels.rays_per_pixel"),
 			pitch=pitch,
 			size=size,
+			sample_size=sample_size,
 			projector_shift_max_pixels=projector_shift_max_pixels,
 			bins_per_pixel=bins_per_pixel,
 			activation_mode=activation_mode,
@@ -1225,14 +1255,19 @@ def _generate_pixelated_rays(
 	energies = np.zeros(total_rays, dtype=np.float64)
 	focus_uv = np.zeros((total_rays, 2), dtype=np.float64)
 
-	pixel_area = px.size[0] * px.size[1]
+	# Rays are drawn uniformly from the sampling footprint (`sample_size`, which
+	# defaults to `size`). The energy weight uses the same area so that each ray
+	# carries I(x) * A_sample / N, an unbiased estimate of the profile integrated
+	# over the sampled region. `size` still sets the Gaussian sigma.
+	sample_u_size, sample_v_size = px.sample_size
+	sample_area = sample_u_size * sample_v_size
 	sigma_u = _gaussian_sigma(px.size[0], px.gaussian_size_type)
 	sigma_v = _gaussian_sigma(px.size[1], px.gaussian_size_type)
 
 	cursor = 0
 	for center_u, center_v, i_active in active_pixels:
-		local_u = rng.uniform(-px.size[0] / 2.0, px.size[0] / 2.0, rays_per_pixel)
-		local_v = rng.uniform(-px.size[1] / 2.0, px.size[1] / 2.0, rays_per_pixel)
+		local_u = rng.uniform(-sample_u_size / 2.0, sample_u_size / 2.0, rays_per_pixel)
+		local_v = rng.uniform(-sample_v_size / 2.0, sample_v_size / 2.0, rays_per_pixel)
 		sample_u = center_u + local_u
 		sample_v = center_v + local_v
 
@@ -1240,12 +1275,12 @@ def _generate_pixelated_rays(
 		pix_origins, pix_directions = _compute_origins_and_directions(cfg, rng, focus_points)
 
 		if px.intensity_mode == "flat":
-			pix_energies = np.full(rays_per_pixel, i_active * pixel_area / rays_per_pixel, dtype=np.float64)
+			pix_energies = np.full(rays_per_pixel, i_active * sample_area / rays_per_pixel, dtype=np.float64)
 		else:
 			gaussian_intensity = i_active * np.exp(
 				-(local_u * local_u / (2.0 * sigma_u * sigma_u) + local_v * local_v / (2.0 * sigma_v * sigma_v))
 			)
-			pix_energies = gaussian_intensity * (pixel_area / rays_per_pixel)
+			pix_energies = gaussian_intensity * (sample_area / rays_per_pixel)
 
 		next_cursor = cursor + rays_per_pixel
 		origins[cursor:next_cursor] = pix_origins
